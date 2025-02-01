@@ -17,12 +17,12 @@ gsutil cp pine_config.txt "gs://${BUCKET_NAME}/pine_config.txt"
 # Upload both business directories
 echo "📤 Uploading business directories..."
 gsutil cp lknbusiness-rolodex.html "gs://${BUCKET_NAME}/lknbusiness-rolodex.html" || true
-gsutil cp lkncommerce-rolodex.json "gs://${BUCKET_NAME}/lkncommerce-rolodex.json"
+gsutil cp lkncommerce-rolodex.csv "gs://${BUCKET_NAME}/lkncommerce-rolodex.csv"
 
 # Set public read access
 gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/pine_config.txt"
 gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/lknbusiness-rolodex.html" || true
-gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/lkncommerce-rolodex.json"
+gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/lkncommerce-rolodex.csv"
 
 echo "✅ Configuration and business directories uploaded successfully!"
 echo "📍 Configuration location: gs://${BUCKET_NAME}/pine_config.txt"

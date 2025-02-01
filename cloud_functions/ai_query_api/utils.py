@@ -3,11 +3,10 @@ import requests
 import logging
 import os
 import json
-from io import BytesIO
 import google.auth
 import google.auth.transport.requests
 from google.cloud import storage
-from vertexai.preview.generative_models import Image
+from google.cloud import secretmanager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,8 +31,29 @@ def get_config() -> str:
     except Exception as e:
         logger.error(f"Error reading config: {e}")
         # Return default config if unable to read from bucket
-        return """Please inform the user that Pine (your name) is currently offline and unable to process their request.
-        """
+        return """Please inform the user that Pine (your name) is currently offline and unable to process their request."""
+
+def get_api_key() -> str:
+    """Get Gemini API key from Secret Manager.
+    
+    Returns:
+        str: API key for Gemini
+    """
+    try:
+        # Create the Secret Manager client
+        client = secretmanager.SecretManagerServiceClient()
+        
+        # Build the resource name
+        name = f"projects/hack-at-davidson25/secrets/flash-8b-api-key/versions/latest"
+        
+        # Access the secret version
+        response = client.access_secret_version(request={"name": name})
+        
+        # Return the decoded payload
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        logger.error(f"Error getting API key: {e}")
+        raise
 
 def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None) -> Dict[Any, Any]:
     """Query the Gemini API with a given prompt.
@@ -47,42 +67,30 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
         Dict: The JSON response from the API
     """
     try:
-        # Get configuration
+        # Get configuration and API key
         config = get_config()
+        api_key = get_api_key()
+        business_directory = get_business_directory()
         
-        # Get credentials and create request object
-        credentials, project = google.auth.default()
-        auth_req = google.auth.transport.requests.Request()
-        
-        # Refresh credentials
-        credentials.refresh(auth_req)
-        
-        # Combine system prompt with user's question
-        full_prompt = f"{config}\n\nUSER QUERY: {prompt}"
+        # Combine system prompt with business directory and user's question
+        full_prompt = f"""{config}
 
-        # Get model settings
-        model_settings = {
-            "model": "gemini-1.5-flash-002",
-            "temperature": temperature if temperature is not None else 0.7,
-            "max_tokens": max_tokens if max_tokens is not None else 1024,
-            "location": "us-east1"
-        }
-        api_settings = {
-            "project_id": "hack-at-davidson25",
-            "endpoint": "https://us-east1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:streamGenerateContent"
-        }
+BUSINESS DIRECTORY DATA:
+{business_directory}
+
+USER QUERY: {prompt}
+
+Remember to:
+1. Search the business directory above for relevant matches
+2. Return data in the exact format specified
+3. Only include businesses found in the directory"""
+
+        # API endpoint
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
         
-        # Format endpoint URL
-        url = api_settings['endpoint'].format(
-            project_id=api_settings['project_id'],
-            location=model_settings['location'],
-            model=model_settings['model']
-        )
-        
-        # Request headers with authorization
+        # Request headers
         headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {credentials.token}'
+            'Content-Type': 'application/json'
         }
         
         # Request payload
@@ -91,16 +99,19 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
                 "parts": [{"text": full_prompt}]
             }],
             "generationConfig": {
-                "temperature": model_settings['temperature'],
-                "maxOutputTokens": model_settings['max_tokens']
+                "temperature": temperature if temperature is not None else 0.7,
+                "maxOutputTokens": max_tokens if max_tokens is not None else 1024,
+                "topK": 40,
+                "topP": 0.8
             }
         }
         
-        # Create authorized session
-        authed_session = google.auth.transport.requests.AuthorizedSession(credentials)
-        
         # Make the API request
-        response = authed_session.post(url, headers=headers, json=payload)
+        response = requests.post(
+            f"{url}?key={api_key}",
+            headers=headers,
+            json=payload
+        )
         
         # Check if request was successful
         response.raise_for_status()
@@ -109,17 +120,7 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
         api_response = response.json()
         
         # Extract and parse the text response
-        response_text = api_response['candidates'][0]['content']['parts'][0]['text']
-        try:
-            # Try to parse the response as JSON
-            business_data = json.loads(response_text)
-            return business_data
-        except json.JSONDecodeError:
-            # If response is not valid JSON, return an error message
-            return {
-                "error": "Response was not in valid JSON format",
-                "raw_response": response_text
-            }
+        return api_response['candidates'][0]['content']['parts'][0]['text']
         
     except Exception as e:
         logger.error(f"Error making request to Gemini API: {e}")
@@ -186,10 +187,10 @@ def extract_prompt(request):
     return None
 
 def get_business_directory() -> str:
-    """Get business directory data from both JSON and HTML sources in Cloud Storage bucket.
+    """Get business directory data from both CSV and HTML sources in Cloud Storage bucket.
     
     Returns:
-        str: Combined business directory data containing both JSON and HTML
+        str: Combined business directory data containing both CSV and HTML
     """
     try:
         # Create storage client
@@ -199,7 +200,7 @@ def get_business_directory() -> str:
         bucket = storage_client.bucket('pine-config')
         
         # Get both blobs
-        commerce_blob = bucket.blob('lkncommerce-rolodex.json')
+        commerce_blob = bucket.blob('lkncommerce-rolodex.csv')
         business_blob = bucket.blob('lknbusiness-rolodex.html')
         
         # Get both contents
@@ -208,7 +209,7 @@ def get_business_directory() -> str:
         
         # Combine both data sources
         combined_data = f"""
-COMMERCE DIRECTORY (JSON):
+COMMERCE DIRECTORY (CSV):
 {commerce_data}
 
 BUSINESS DIRECTORY (HTML):
@@ -219,95 +220,4 @@ BUSINESS DIRECTORY (HTML):
     except Exception as e:
         logger.error(f"Error reading business directory: {e}")
         # Return empty data if unable to read from bucket
-        return "[]"
-
-def process_business_card(model, image_url: str) -> Dict[str, Any]:
-    """Process a business card image using Gemini.
-    
-    Args:
-        model: The Gemini model instance
-        image_url: URL of the business card image
-        
-    Returns:
-        Dict[str, Any]: Extracted information from the business card
-    """
-    try:
-        # Download image
-        response = requests.get(image_url)
-        if response.status_code != 200:
-            logger.error(f"Failed to download image from {image_url}")
-            return None
-            
-        # Load image for Gemini
-        image_bytes = BytesIO(response.content)
-        image = Image.load_from_bytes(image_bytes.read())
-        
-        # Create prompt for business card analysis
-        image_prompt = """
-        Analyze this business card image and extract the following information in JSON format:
-        {
-            "full_name": "Name from card",
-            "title": "Title/Role if present",
-            "company": "Company name",
-            "contact": {
-                "phone": "Phone number if present",
-                "email": "Email if present",
-                "website": "Website if present",
-                "address": "Address if present"
-            },
-            "additional_details": {
-                "services": ["Service 1", "Service 2"],
-                "specialties": ["Specialty 1", "Specialty 2"],
-                "other": "Any other relevant information"
-            }
-        }
-        """
-        
-        # Generate content with image
-        response = model.generate_content([image_prompt, image])
-        
-        # Parse response as JSON
-        try:
-            return json.loads(response.text)
-        except json.JSONDecodeError:
-            logger.error("Failed to parse card info as JSON")
-            return {"raw_text": response.text}
-            
-    except Exception as e:
-        logger.error(f"Error processing business card: {str(e)}")
-        return None
-
-def process_business_results(model, businesses_data: str) -> Dict[str, Any]:
-    """Process business results and enhance with card details.
-    
-    Args:
-        model: The Gemini model instance
-        businesses_data: JSON string of business results
-        
-    Returns:
-        Dict[str, Any]: Enhanced business data with card details
-    """
-    try:
-        businesses = json.loads(businesses_data)
-        
-        # If it's a specific business query
-        if businesses.get("query_type") == "specific":
-            business_details = businesses["business_details"]
-            if business_details.get("image_url"):
-                card_info = process_business_card(model, business_details["image_url"])
-                if card_info:
-                    business_details["card_details"] = card_info
-        
-        # If it's a general search
-        elif businesses.get("businesses"):
-            for business in businesses["businesses"]:
-                if business.get("image_url"):
-                    card_info = process_business_card(model, business["image_url"])
-                    if card_info:
-                        business["card_details"] = card_info
-        
-        return businesses
-            
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse businesses data: {str(e)}")
-        return None
+        return ""
