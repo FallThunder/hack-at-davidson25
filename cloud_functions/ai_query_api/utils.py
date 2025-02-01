@@ -118,37 +118,27 @@ def get_cors_headers(for_preflight: bool = False) -> Dict[str, str]:
     
     return headers
 
-def extract_prompt(request) -> str:
-    """Extract prompt from request.
+def extract_prompt(request):
+    """Extract prompt from request body, URL parameters, or path."""
+    # First check request body for JSON
+    if request.is_json:
+        json_data = request.get_json()
+        if json_data and 'prompt' in json_data:
+            return json_data['prompt']
     
-    Checks headers, JSON body, and URL parameters in that order.
+    # Then check form data
+    if request.form and 'prompt' in request.form:
+        return request.form['prompt']
     
-    Args:
-        request: The Flask request object
-        
-    Returns:
-        str: The prompt if found, None otherwise
-    """
-    # First check URL path (everything after the base URL)
+    # Then check URL parameters
+    if request.args and 'prompt' in request.args:
+        return request.args['prompt']
+    
+    # Finally check path
     path = request.path
     if path and path.startswith('/'):
         path = path[1:]  # Remove leading slash
     if path:
         return path
-        
-    # Then check header
-    prompt = request.headers.get('X-Prompt')
-    if prompt:
-        return prompt
     
-    # Then check JSON body
-    request_json = request.get_json(silent=True)
-    if request_json and 'prompt' in request_json:
-        return request_json['prompt']
-    
-    # Finally check URL parameters
-    prompt = request.args.get('prompt')
-    if prompt:
-        return prompt
-        
     return None

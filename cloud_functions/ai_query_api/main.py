@@ -25,9 +25,35 @@ def ai_query_assistant(request):
     headers = {"Access-Control-Allow-Origin": "*"}
 
     try:
+        # Check if it's a POST request
+        if request.method != "POST":
+            return (
+                jsonify({
+                    "error": "Only POST requests are supported",
+                    "example": {
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"},
+                        "body": {"prompt": "Your question here"}
+                    }
+                }),
+                405,
+                headers
+            )
+
         prompt = extract_prompt(request)
         if not prompt:
-            return (jsonify({"error": "No prompt provided"}), 400, headers)
+            return (
+                jsonify({
+                    "error": "No prompt provided",
+                    "example": {
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"},
+                        "body": {"prompt": "Your question here"}
+                    }
+                }),
+                400,
+                headers
+            )
 
         # Initialize Vertex AI
         vertexai.init(project=PROJECT_ID, location=LOCATION)
@@ -43,7 +69,14 @@ def ai_query_assistant(request):
     except Exception as e:
         print(f"Error processing request: {str(e)}")
         return (
-            jsonify({"error": f"Failed to process request: {str(e)}"}),
+            jsonify({
+                "error": f"Failed to process request: {str(e)}",
+                "example": {
+                    "method": "POST",
+                    "headers": {"Content-Type": "application/json"},
+                    "body": {"prompt": "Your question here"}
+                }
+            }),
             500,
             headers,
         )
