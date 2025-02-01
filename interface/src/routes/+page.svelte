@@ -1,63 +1,100 @@
-<script>
-    import {MailIcon, MapPinIcon, PhoneIcon} from "lucide-svelte";
+<script lang="ts">
+	import { CheckIcon, MailIcon, MapPinIcon, PhoneIcon } from 'lucide-svelte';
+	import BusinessDisplay from "./BusinessDisplay.svelte";
 
-    let hasResults = false;
+	let prompt = $state('');
+
+	let promise: Promise<Response> | null = $state(null);
+	let disabled = $state(false);
+	let data: any | undefined = $state(undefined);
+
+	async function sub() {
+		disabled = true;
+		promise = fetch('https://ai-query-assistant-tacv2fcyxa-ue.a.run.app/', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				prompt: prompt
+			})
+		});
+		promise
+			.then(async (d) => {
+				data = parseData(await d.text());
+				console.log(data);
+				disabled = false;
+			})
+			.catch(() => {
+				disabled = false;
+			});
+	}
+
+	let error: string | null = $state(null);
+	function parseData(d: string): any {
+		try {
+			let data = d;
+			if (data.startsWith('```json')) {
+				data = data.replaceAll('```json', '');
+				data = data.replaceAll('```', '');
+			}
+
+			let data2 = JSON.parse(data);
+			return data2;
+		} catch (e) {
+			error = e.toString();
+		}
+	}
 </script>
 
 <div class="flex flex-col gap-2">
-    <div class="flex flex-col items-center gap-2">
-        <h1 class="text-3xl font-semibold text-center">LaborLocator</h1>
+	<div class="flex flex-col items-center gap-2">
+		<h1 class="text-3xl font-semibold text-center">LaborLocator</h1>
 
-        <p class="text-lg text-center">Need help finding a business in the Lake Norman community?</p>
+		<p class="text-lg text-center">Need help finding a business in the Lake Norman community? Our intelligent assistant Pine will help you find what you're looking for? Simply type in natural language what you're looking for below.</p>
 
-        <input type="text" placeholder="What are you looking for?" class="min-w-[50%] rounded bg-slate-700 border-2 ring-0 focus:ring-0 focus:outline-none border-thepink py-2 px-3" />
-    </div>
+		<form
+			class="flex-grow min-w-[60vw] flex flex-row gap-3"
+			onsubmit={(e) => {
+				e.preventDefault();
+				sub();
+			}}
+		>
+			<input
+				{disabled}
+				bind:value={prompt}
+				type="text"
+				placeholder="What are you looking for?"
+				class="flex-1 min-w-[50%] disabled:border-gray-600 disabled:cursor-not-allowed rounded bg-slate-700 border-2 ring-0 focus:ring-0 focus:outline-none border-pink-500 py-2 px-3"
+			/>
+			<button
+				{disabled}
+				class="bg-pink-500 disabled:bg-gray-600 disabled:hover:bg-gray-600 disabled:cursor-not-allowed hover:bg-pink-700 transition px-4 py-2 rounded font-semibold"
+				>Go &rarr;</button
+			>
+		</form>
+	</div>
 
-    {#if hasResults}
-        <div class="flex flex-row justify-center">
-            <div class="flex flex-initial flex-col gap-2 bg-slate-900 min-w-80 px-3 py-2 rounded shadow-xl border border-yellow-400 hover:scale-105 cursor-pointer transition">
-                <h1 class="font-semibold text-2xl">Business 1234</h1>
-                <div>
-                    <p class="font-light text-xs">Pine thinks this is <b class="font-bold text-yellow-400">your best choice because:</b></p>
-                    <p>Blah blah</p>
-                </div>
-                <p class="flex flex-row gap-2 align-middle">
-                    <PhoneIcon class="w-5 h-5" />
-                    (111) 1111-11111
-                </p>
-                <p class="flex flex-row gap-2 align-middle">
-                    <MapPinIcon class="w-5 h-5" />
-                    123 Road St
-                </p>
-            </div>
-        </div>
-
-        <div class="flex flex-row items-center">
-            <div class="flex flex-row flex-wrap gap-4 items-center mt-5">
-                {#each {length: 50} as _, i}
-                    <div class="flex-auto">
-                        <div class="flex flex-col gap-2 bg-slate-900 min-w-80 px-3 py-2 rounded shadow-xl hover:scale-105 cursor-pointer transition">
-                            <h1 class="font-semibold text-xl">Business {i}</h1>
-                            <div>
-                                <p class="font-light text-xs">Pine thinks this is relevant because:</p>
-                                <p>Blah blah</p>
-                            </div>
-                            <p class="flex flex-row gap-2 align-middle">
-                                <PhoneIcon class="w-5 h-5" />
-                                ({i}{i}{i}) {i}{i}{i}-{i}{i}{i}{i}
-                            </p>
-                            <p class="flex flex-row gap-2 align-middle">
-                                <MapPinIcon class="w-5 h-5" />
-                                123 Road St
-                            </p>
-                        </div>
-                    </div>
-                {/each}
-            </div>
-        </div>
-    {:else}
-        <div class="flex flex-row justify-center">
-            <span class="italic">Talk to Pine to get some business suggestions!</span>
-        </div>
-    {/if}
+	{#if promise !== null}
+		{#await promise}
+			<div class="flex flex-row justify-center">
+				<span class="italic"
+					>Pine is searching thousands of businesses for your best choice. This will only take a moment...
+					seconds.</span
+				>
+			</div>
+		{:then}
+			{#if error === null}
+				<BusinessDisplay {data} />
+			{:else}
+				<div class="flex flex-row justify-center">
+					<span class="italic text-red-500 font-semibold">Something went wrong :( {error}</span>
+				</div>
+			{/if}
+		{:catch e}
+			<div class="flex flex-row justify-center">
+				<span class="italic text-red-500 font-semibold">Something went wrong :( {e}</span>
+			</div>
+		{/await}
+	{/if}
 </div>
