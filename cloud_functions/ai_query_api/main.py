@@ -4,7 +4,7 @@ import google.auth
 import google.auth.transport.requests
 import vertexai
 from vertexai.preview.generative_models import GenerativeModel
-from utils import extract_prompt, get_config
+from utils import extract_prompt, get_config, get_business_directory
 
 PROJECT_ID = "hack-at-davidson25"
 LOCATION = "us-east1"
@@ -58,11 +58,26 @@ def ai_query_assistant(request):
                 headers
             )
 
-        # Get system prompt from config
+        # Get system prompt and business directory
         system_prompt = get_config()
+        business_directory = get_business_directory()
         
-        # Combine system prompt with user query
-        full_prompt = f"{system_prompt}\n\nUSER QUERY: {prompt}"
+        # Combine system prompt with business directory and user query
+        full_prompt = f"""
+{system_prompt}
+
+BUSINESS DIRECTORY HTML:
+```html
+{business_directory}
+```
+
+USER QUERY: {prompt}
+
+Remember to:
+1. Search the business directory above for relevant matches
+2. Return data in the exact format specified
+3. Only include businesses found in the directory
+"""
 
         # Initialize Vertex AI
         vertexai.init(project=PROJECT_ID, location=LOCATION)

@@ -203,3 +203,24 @@ def extract_prompt(request):
         return path
     
     return None
+
+def get_business_directory() -> str:
+    """Get business directory HTML from Cloud Storage bucket.
+    
+    Returns:
+        str: HTML content of the business directory
+    """
+    try:
+        # Create storage client
+        storage_client = storage.Client()
+        
+        # Get bucket and blob
+        bucket = storage_client.bucket('pine-config')
+        blob = bucket.blob('lknbusiness-rolodex.html')
+        
+        # Download HTML as text
+        return blob.download_as_text()
+    except Exception as e:
+        logger.error(f"Error reading business directory: {e}")
+        # Return empty directory if unable to read from bucket
+        return "<div>No businesses found in directory</div>"
