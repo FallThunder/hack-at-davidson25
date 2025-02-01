@@ -4,3 +4,4 @@ requests==2.*
 google-auth==2.*
 google-auth-httplib2==0.1.0
 google-cloud-aiplatform==1.*
+google-cloud-storage==2.*

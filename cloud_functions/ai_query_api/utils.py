@@ -2,41 +2,64 @@ from typing import Dict, Any
 import requests
 import logging
 import os
+import json
 import google.auth
 import google.auth.transport.requests
+from google.cloud import storage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# System prompt that sets the context for the AI
-SYSTEM_PROMPT = """You are a helpful AI assistant that can answer questions on any topic. Please provide clear, accurate, and helpful responses.
+def get_config() -> Dict[str, Any]:
+    """Get configuration from Cloud Storage bucket.
+    
+    Returns:
+        Dict: Configuration dictionary
+    """
+    try:
+        # Create storage client
+        storage_client = storage.Client()
+        
+        # Get bucket and blob
+        bucket = storage_client.bucket('pine-config')
+        blob = bucket.blob('pine_config.txt')
+        
+        # Download and parse config
+        config_str = blob.download_as_text()
+        return json.loads(config_str)
+    except Exception as e:
+        logger.error(f"Error reading config: {e}")
+        # Return default config if unable to read from bucket
+        return {
+            "system_prompt": "You are Pine, a professional AI assistant specialized in helping people find the right businesses and services.",
+            "model_settings": {
+                "model": "gemini-1.5-flash-002",
+                "temperature": 0.7,
+                "max_tokens": 1024,
+                "location": "us-east1"
+            },
+            "api_settings": {
+                "project_id": "hack-at-davidson25",
+                "endpoint": "https://us-east1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:streamGenerateContent"
+            }
+        }
 
-PERSONALITY GUIDELINES:
-1. Be friendly and enthusiastic
-2. Be direct and concise
-3. Focus on providing accurate information
-4. Use a conversational tone
-5. Be helpful and encouraging
-
-CRITICAL RULES:
-1. NEVER add explanations about how you work
-2. NEVER apologize or express uncertainty
-3. Always provide factual, helpful information
-4. Stay focused on the user's question"""
-
-def query_gemini(prompt: str, temperature: float = 0.7, max_tokens: int = 1024) -> Dict[Any, Any]:
+def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None) -> Dict[Any, Any]:
     """Query the Gemini API with a given prompt.
     
     Args:
         prompt (str): The text prompt to send to Gemini
-        temperature (float): Controls response randomness
-        max_tokens (int): Maximum response length
+        temperature (float, optional): Controls response randomness
+        max_tokens (int, optional): Maximum response length
         
     Returns:
         Dict: The JSON response from the API
     """
     try:
+        # Get configuration
+        config = get_config()
+        
         # Get credentials and create request object
         credentials, project = google.auth.default()
         auth_req = google.auth.transport.requests.Request()
@@ -45,10 +68,18 @@ def query_gemini(prompt: str, temperature: float = 0.7, max_tokens: int = 1024) 
         credentials.refresh(auth_req)
         
         # Combine system prompt with user's question
-        full_prompt = f"{SYSTEM_PROMPT}\n\nQuestion: {prompt}\nAnswer:"
+        full_prompt = f"{config['system_prompt']}\n\nQuestion: {prompt}\nAnswer:"
 
-        # API endpoint
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+        # Get model settings
+        model_settings = config['model_settings']
+        api_settings = config['api_settings']
+        
+        # Format endpoint URL
+        url = api_settings['endpoint'].format(
+            project_id=api_settings['project_id'],
+            location=model_settings['location'],
+            model=model_settings['model']
+        )
         
         # Request headers with authorization
         headers = {
@@ -62,8 +93,8 @@ def query_gemini(prompt: str, temperature: float = 0.7, max_tokens: int = 1024) 
                 "parts": [{"text": full_prompt}]
             }],
             "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens
+                "temperature": temperature if temperature is not None else model_settings['temperature'],
+                "maxOutputTokens": max_tokens if max_tokens is not None else model_settings['max_tokens']
             }
         }
         
