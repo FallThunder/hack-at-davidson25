@@ -3,9 +3,11 @@ import requests
 import logging
 import os
 import json
+from io import BytesIO
 import google.auth
 import google.auth.transport.requests
 from google.cloud import storage
+from vertexai.preview.generative_models import Image
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,29 +32,8 @@ def get_config() -> str:
     except Exception as e:
         logger.error(f"Error reading config: {e}")
         # Return default config if unable to read from bucket
-        return """You are Pine, a professional AI assistant specialized in helping people find the right businesses and services.
-
-RESPONSE FORMAT:
-[
-    {
-        "name": "Business Name 1",
-        "phone": "(555) XXX-XXXX",
-        "website": "business1.example.com",
-        "services": [
-            "Primary Service",
-            "Secondary Service",
-            "Additional Service"
-        ]
-    }
-]
-
-CRITICAL RULES:
-1. ALWAYS return exactly 3 businesses
-2. ONLY return the JSON array - no other text
-3. Make business names related to the requested service
-4. Use (555) area code for all phone numbers
-5. All websites must end in .example.com
-6. List exactly 3 services per business"""
+        return """Please inform the user that Pine (your name) is currently offline and unable to process their request.
+        """
 
 def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None) -> Dict[Any, Any]:
     """Query the Gemini API with a given prompt.
@@ -205,22 +186,128 @@ def extract_prompt(request):
     return None
 
 def get_business_directory() -> str:
-    """Get business directory HTML from Cloud Storage bucket.
+    """Get business directory data from both JSON and HTML sources in Cloud Storage bucket.
     
     Returns:
-        str: HTML content of the business directory
+        str: Combined business directory data containing both JSON and HTML
     """
     try:
         # Create storage client
         storage_client = storage.Client()
         
-        # Get bucket and blob
+        # Get bucket
         bucket = storage_client.bucket('pine-config')
-        blob = bucket.blob('lknbusiness-rolodex.html')
         
-        # Download HTML as text
-        return blob.download_as_text()
+        # Get both blobs
+        commerce_blob = bucket.blob('lkncommerce-rolodex.json')
+        business_blob = bucket.blob('lknbusiness-rolodex.html')
+        
+        # Get both contents
+        commerce_data = commerce_blob.download_as_text()
+        business_data = business_blob.download_as_text()
+        
+        # Combine both data sources
+        combined_data = f"""
+COMMERCE DIRECTORY (JSON):
+{commerce_data}
+
+BUSINESS DIRECTORY (HTML):
+{business_data}
+"""
+        return combined_data
+        
     except Exception as e:
         logger.error(f"Error reading business directory: {e}")
-        # Return empty directory if unable to read from bucket
-        return "<div>No businesses found in directory</div>"
+        # Return empty data if unable to read from bucket
+        return "[]"
+
+def process_business_card(model, image_url: str) -> Dict[str, Any]:
+    """Process a business card image using Gemini.
+    
+    Args:
+        model: The Gemini model instance
+        image_url: URL of the business card image
+        
+    Returns:
+        Dict[str, Any]: Extracted information from the business card
+    """
+    try:
+        # Download image
+        response = requests.get(image_url)
+        if response.status_code != 200:
+            logger.error(f"Failed to download image from {image_url}")
+            return None
+            
+        # Load image for Gemini
+        image_bytes = BytesIO(response.content)
+        image = Image.load_from_bytes(image_bytes.read())
+        
+        # Create prompt for business card analysis
+        image_prompt = """
+        Analyze this business card image and extract the following information in JSON format:
+        {
+            "full_name": "Name from card",
+            "title": "Title/Role if present",
+            "company": "Company name",
+            "contact": {
+                "phone": "Phone number if present",
+                "email": "Email if present",
+                "website": "Website if present",
+                "address": "Address if present"
+            },
+            "additional_details": {
+                "services": ["Service 1", "Service 2"],
+                "specialties": ["Specialty 1", "Specialty 2"],
+                "other": "Any other relevant information"
+            }
+        }
+        """
+        
+        # Generate content with image
+        response = model.generate_content([image_prompt, image])
+        
+        # Parse response as JSON
+        try:
+            return json.loads(response.text)
+        except json.JSONDecodeError:
+            logger.error("Failed to parse card info as JSON")
+            return {"raw_text": response.text}
+            
+    except Exception as e:
+        logger.error(f"Error processing business card: {str(e)}")
+        return None
+
+def process_business_results(model, businesses_data: str) -> Dict[str, Any]:
+    """Process business results and enhance with card details.
+    
+    Args:
+        model: The Gemini model instance
+        businesses_data: JSON string of business results
+        
+    Returns:
+        Dict[str, Any]: Enhanced business data with card details
+    """
+    try:
+        businesses = json.loads(businesses_data)
+        
+        # If it's a specific business query
+        if businesses.get("query_type") == "specific":
+            business_details = businesses["business_details"]
+            if business_details.get("image_url"):
+                card_info = process_business_card(model, business_details["image_url"])
+                if card_info:
+                    business_details["card_details"] = card_info
+        
+        # If it's a general search
+        elif businesses.get("businesses"):
+            for business in businesses["businesses"]:
+                if business.get("image_url"):
+                    card_info = process_business_card(model, business["image_url"])
+                    if card_info:
+                        business["card_details"] = card_info
+        
+        return businesses
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse businesses data: {str(e)}")
+        return None
