@@ -1,1 +1,36 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Labor Locator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .business-list {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .business-item {
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            margin: 10px;
+            padding: 10px;
+            width: calc(33% - 40px);
+            box-shadow: 2px 2px 12px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+        .business-item:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+    <h1>Labor Locator</h1>
+    <button id="fetch-data">Go to Home Page</button>
+    <div id="business-list" class="business-list"></div>
+    <script src="script.js"></script>
+</body>
+</html>
