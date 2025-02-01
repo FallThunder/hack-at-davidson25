@@ -10,7 +10,7 @@ export SERVICE_ACCOUNT_NAME="ai-query-service-account"
 export SERVICE_ACCOUNT_EMAIL="$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 
 # Function configuration
-export MEMORY="256Mi"  # Updated to use Mi suffix for Gen2
+export MEMORY="384Mi"  # Set to handle peak usage of 320Mi while staying efficient for free tier
 export TIMEOUT="30s"   # Reduced timeout for free tier
 export MIN_INSTANCES="0"  # Scale to zero when not in use
 export MAX_INSTANCES="10" # Limited max instances to control costs

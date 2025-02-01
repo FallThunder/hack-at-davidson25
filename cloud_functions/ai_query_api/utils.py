@@ -11,11 +11,11 @@ from google.cloud import storage
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_config() -> Dict[str, Any]:
+def get_config() -> str:
     """Get configuration from Cloud Storage bucket.
     
     Returns:
-        Dict: Configuration dictionary
+        str: Configuration text containing system prompt
     """
     try:
         # Create storage client
@@ -25,25 +25,34 @@ def get_config() -> Dict[str, Any]:
         bucket = storage_client.bucket('pine-config')
         blob = bucket.blob('pine_config.txt')
         
-        # Download and parse config
-        config_str = blob.download_as_text()
-        return json.loads(config_str)
+        # Download config as text
+        return blob.download_as_text()
     except Exception as e:
         logger.error(f"Error reading config: {e}")
         # Return default config if unable to read from bucket
-        return {
-            "system_prompt": "You are Pine, a professional AI assistant specialized in helping people find the right businesses and services.",
-            "model_settings": {
-                "model": "gemini-1.5-flash-002",
-                "temperature": 0.7,
-                "max_tokens": 1024,
-                "location": "us-east1"
-            },
-            "api_settings": {
-                "project_id": "hack-at-davidson25",
-                "endpoint": "https://us-east1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:streamGenerateContent"
-            }
-        }
+        return """You are Pine, a professional AI assistant specialized in helping people find the right businesses and services.
+
+RESPONSE FORMAT:
+[
+    {
+        "name": "Business Name 1",
+        "phone": "(555) XXX-XXXX",
+        "website": "business1.example.com",
+        "services": [
+            "Primary Service",
+            "Secondary Service",
+            "Additional Service"
+        ]
+    }
+]
+
+CRITICAL RULES:
+1. ALWAYS return exactly 3 businesses
+2. ONLY return the JSON array - no other text
+3. Make business names related to the requested service
+4. Use (555) area code for all phone numbers
+5. All websites must end in .example.com
+6. List exactly 3 services per business"""
 
 def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None) -> Dict[Any, Any]:
     """Query the Gemini API with a given prompt.
@@ -68,11 +77,19 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
         credentials.refresh(auth_req)
         
         # Combine system prompt with user's question
-        full_prompt = f"{config['system_prompt']}\n\nQuestion: {prompt}\nAnswer:"
+        full_prompt = f"{config}\n\nUSER QUERY: {prompt}"
 
         # Get model settings
-        model_settings = config['model_settings']
-        api_settings = config['api_settings']
+        model_settings = {
+            "model": "gemini-1.5-flash-002",
+            "temperature": temperature if temperature is not None else 0.7,
+            "max_tokens": max_tokens if max_tokens is not None else 1024,
+            "location": "us-east1"
+        }
+        api_settings = {
+            "project_id": "hack-at-davidson25",
+            "endpoint": "https://us-east1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:streamGenerateContent"
+        }
         
         # Format endpoint URL
         url = api_settings['endpoint'].format(
@@ -93,8 +110,8 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
                 "parts": [{"text": full_prompt}]
             }],
             "generationConfig": {
-                "temperature": temperature if temperature is not None else model_settings['temperature'],
-                "maxOutputTokens": max_tokens if max_tokens is not None else model_settings['max_tokens']
+                "temperature": model_settings['temperature'],
+                "maxOutputTokens": model_settings['max_tokens']
             }
         }
         
@@ -107,8 +124,21 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
         # Check if request was successful
         response.raise_for_status()
         
-        # Return the JSON response
-        return response.json()
+        # Parse the response
+        api_response = response.json()
+        
+        # Extract and parse the text response
+        response_text = api_response['candidates'][0]['content']['parts'][0]['text']
+        try:
+            # Try to parse the response as JSON
+            business_data = json.loads(response_text)
+            return business_data
+        except json.JSONDecodeError:
+            # If response is not valid JSON, return an error message
+            return {
+                "error": "Response was not in valid JSON format",
+                "raw_response": response_text
+            }
         
     except Exception as e:
         logger.error(f"Error making request to Gemini API: {e}")
