@@ -221,18 +221,18 @@ def get_id_token() -> str:
         logger.error(f"Error getting ID token: {e}")
         return None
 
-def process_business_card(card_url: str) -> Dict[str, str]:
+def process_business_card(card_url: str) -> Dict[str, Any]:
     """Process a business card image using the image processing API.
     
     Args:
         card_url (str): URL of the business card image
         
     Returns:
-        Dict[str, str]: Dictionary containing extracted business information
+        Dict[str, Any]: Dictionary containing extracted business information
     """
     try:
         # Standard prompt for all business cards
-        STANDARD_PROMPT = "Extract all information from this business card into a JSON format with the following keys: business_name, owner_name, phone_number, email, address, and any_other_details."
+        STANDARD_PROMPT = "Extract all information from this business card and return it in a JSON format with exactly these keys: business_name, owner_name, phone_number, email, address, any_other_details. If any field is not found, set it to null."
         
         # Get authentication token
         id_token = get_id_token()
@@ -255,15 +255,27 @@ def process_business_card(card_url: str) -> Dict[str, str]:
         
         if response.status_code != 200:
             raise Exception(f"API request failed with status {response.status_code}: {response.text}")
-            
-        return {
-            "extracted_info": response.json().get("response", "")
-        }
+        
+        # Parse the response JSON and ensure it has the required structure
+        extracted_info = json.loads(response.json().get("response", "{}"))
+        
+        # Ensure all required fields exist
+        required_fields = ["business_name", "owner_name", "phone_number", "email", "address", "any_other_details"]
+        for field in required_fields:
+            if field not in extracted_info:
+                extracted_info[field] = None
+                
+        return extracted_info
         
     except Exception as e:
         logger.error(f"Error processing business card: {e}")
         return {
-            "extracted_info": ""
+            "business_name": None,
+            "owner_name": None,
+            "phone_number": None,
+            "email": None,
+            "address": None,
+            "any_other_details": None
         }
 
 def generate_search_params(query: str) -> Dict[str, Any]:
@@ -291,18 +303,18 @@ def generate_search_params(query: str) -> Dict[str, Any]:
         # Process each business card and format final response
         final_results = {
             "matched_businesses": [],
-            "match_count": search_results.get("match_count", 0)
+            "match_count": 0
         }
         
         for business in search_results.get("matched_businesses", []):
-            if "card_link" in business and "business_link" in business:
+            if "card_link" in business:
                 # Process the business card
-                card_info = process_business_card(business["card_link"])
+                business_info = process_business_card(business["card_link"])
                 
                 # Add to final results with all required fields
                 final_results["matched_businesses"].append({
-                    "business_info": card_info["extracted_info"],
-                    "homepage_link": business["business_link"],
+                    "business_info": business_info,
+                    "homepage_link": business.get("business_link"),
                     "card_link": business["card_link"]
                 })
         

@@ -100,7 +100,8 @@ def generate_content(image_source, prompt):
             "Return ONLY a clean JSON string without any markdown formatting, code blocks, or special characters. "
             "The response should be a single line, directly parseable as JSON. "
             "For any fields where information is not found, use null instead of omitting the field. "
-            "Always include all fields in the response: business_name, owner_name, phone_number, email, address, and any_other_details."
+            "Always include all fields in the response: business_name, owner_name, phone_number, email, address, and any_other_details. "
+            "If text is in all caps or formatted strangely, convert it to pronoun form or a proper sentence where appropriate."
         )
 
         # Generate content

@@ -41,15 +41,15 @@ def ai_query_assistant(request):
         # Handle POST request with JSON body
         if request.method == "POST" and request.is_json:
             request_json = request.get_json()
-            if request_json and 'query' in request_json:
-                query = request_json['query']
+            if request_json:
+                query = request_json.get('query') or request_json.get('prompt')
         
         # Handle GET request with query parameter
-        if not query and request.args.get("query"):
-            query = request.args.get("query")
+        if not query:
+            query = request.args.get("query") or request.args.get("prompt")
             
         if not query:
-            return (jsonify({"error": "No query parameter provided"}), 400, headers)
+            return (jsonify({"error": "No query/prompt parameter provided"}), 400, headers)
             
         # Generate search parameters and process business cards using the function from utils.py
         search_results = generate_search_params(query)
