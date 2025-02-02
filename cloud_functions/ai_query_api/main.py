@@ -37,28 +37,38 @@ def ai_query_assistant(request):
     
     try:
         query = None
+        logger.info(f"Request method: {request.method}")
         
         # Handle POST request with JSON body
         if request.method == "POST" and request.is_json:
             request_json = request.get_json()
+            logger.info(f"Request JSON: {request_json}")
             if request_json:
                 query = request_json.get('query') or request_json.get('prompt')
+                logger.info(f"Extracted query: {query}")
         
         # Handle GET request with query parameter
         if not query:
             query = request.args.get("query") or request.args.get("prompt")
+            logger.info(f"Query from args: {query}")
             
         if not query:
+            logger.warning("No query/prompt parameter found in request")
             return (jsonify({"error": "No query/prompt parameter provided"}), 400, headers)
             
         # Generate search parameters and process business cards using the function from utils.py
+        logger.info(f"Calling generate_search_params with query: {query}")
         search_results = generate_search_params(query)
+        logger.info(f"Search results: {search_results}")
         
-        if "error" in search_results:
-            return (jsonify({"error": search_results["error"]}), 500, headers)
+        if isinstance(search_results, dict) and "error" in search_results:
+            error_msg = search_results["error"]
+            if "quota exceeded" in error_msg.lower() or "resource exhausted" in error_msg.lower():
+                return (jsonify({"error": "Service is temporarily unavailable due to high demand. Please try again in a few minutes."}), 429, headers)
+            return (jsonify({"error": error_msg}), 500, headers)
             
         return (jsonify(search_results), 200, headers)
         
     except Exception as e:
         logger.error(f"Error in ai_query_assistant: {e}")
-        return (jsonify({"error": str(e)}), 500, headers)
+        return (jsonify({"error": "An unexpected error occurred. Please try again later."}), 500, headers)
