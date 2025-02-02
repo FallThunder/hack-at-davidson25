@@ -6,7 +6,13 @@
 
 	let promise: Promise<Response> | null = $state(null);
 	let disabled = $state(false);
-	let data: any | undefined = $state(undefined);
+	let data: {
+		match_count: number;
+		matched_businesses: Array<{
+			business_link: string;
+			card_link: string;
+		}>;
+	} | undefined = $state(undefined);
 
 	async function sub() {
 		disabled = true;
@@ -16,16 +22,20 @@
 				'Content-Type': 'application/json'
 			},
 			body: JSON.stringify({
-				prompt: prompt
+				query: prompt
 			})
 		});
 		promise
 			.then(async (d) => {
-				data = parseData(await d.text());
-				console.log(data);
+				const responseText = await d.text();
+				console.log('Raw response:', responseText);
+				data = parseData(responseText);
+				console.log('Parsed data:', data);
 				disabled = false;
 			})
-			.catch(() => {
+			.catch((e) => {
+				console.error('Error:', e);
+				error = e.toString();
 				disabled = false;
 			});
 	}
@@ -33,25 +43,31 @@
 	let error: string | null = $state(null);
 	function parseData(d: string): any {
 		try {
-			let data = d;
-			data = data.replaceAll('```json', '');
-			data = data.replaceAll('```', '');
-			if (data.startsWith('"')) {
-				data = data.substring(1);
-			}
-			if (data.endsWith('"')) {
-				data = data.substring(0, data.length - 1);
-			}
-			data = data.replaceAll('\\n', '');
-			data = data.replaceAll('\\"', '"');
-			data = data.replaceAll('\\\\"', '');
+			// First try to parse the response as JSON directly
+			try {
+				return JSON.parse(d);
+			} catch (e) {
+				// If direct parsing fails, try to clean up the response
+				let data = d;
+				data = data.replaceAll('```json', '');
+				data = data.replaceAll('```', '');
+				if (data.startsWith('"')) {
+					data = data.substring(1);
+				}
+				if (data.endsWith('"')) {
+					data = data.substring(0, data.length - 1);
+				}
+				data = data.replaceAll('\\n', '');
+				data = data.replaceAll('\\"', '"');
+				data = data.replaceAll('\\\\"', '');
 
-			console.log(data);
-			let data2 = JSON.parse(data);
-			console.log(data2);
-			return data2;
-		} catch (e) {
-			error = e.toString();
+				console.log('Cleaned data:', data);
+				return JSON.parse(data);
+			}
+		} catch (e: unknown) {
+			console.error('Parse error:', e);
+			error = e instanceof Error ? e.toString() : 'Unknown error occurred';
+			return null;
 		}
 	}
 </script>

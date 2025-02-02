@@ -42,3 +42,4 @@ Critical Rules:
 8. If no businesses match the query, return an empty array for matched_businesses and 0 for match_count.
 9. Make sure all URLs in business_link and card_link are complete and valid URLs from the HTML file only.
 10. Only include businesses that actually exist in the HTML file - do not make up or generate any data.
+11. Verify that you do not have duplicates of any business.
