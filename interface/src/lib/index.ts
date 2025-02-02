@@ -2,8 +2,8 @@ export interface Business {
     name: string,
     phone: string,
     website: string,
-    address: { street: string, city: string, state: string },
-    description: string,
+    address: string,
+    match_reasons: string[]
 }
 
 export interface BResponse {

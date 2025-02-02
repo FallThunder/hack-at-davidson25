@@ -15,10 +15,15 @@
         <h1 class="font-semibold text-xl">{business.name}</h1>
         <div>
             <p class="font-light text-xs">
-                Pine thinks this is a good choice because this business provides:
+                Pine thinks this is a good choice because:
             </p>
             <p>
-                        {business.description}
+                {#each business.match_reasons as reason}
+                    <li class="flex flex-row gap-2">
+                        <CheckIcon class="text-green-500" />
+                        {reason}
+                    </li>
+                {/each}
             </p>
         </div>
         <p class="flex flex-row gap-2 align-middle">
@@ -27,7 +32,7 @@
         </p>
         <p class="flex flex-row gap-2 align-middle">
             <MapPinIcon class="w-5 h-5" />
-            {business.address.street}, {business.address.city}, {business.address.state}
+            {business.address}
         </p>
     </div>
 </div>

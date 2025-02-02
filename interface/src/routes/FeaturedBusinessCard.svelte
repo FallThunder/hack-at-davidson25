@@ -36,7 +36,7 @@
         </p>
         <p class="flex flex-row gap-2 align-middle">
             <MapPinIcon class="w-5 h-5" />
-            {business.address.street}, {business.address.city}, {business.address.state}
+            {business.address}
         </p>
     </div>
 </div>
