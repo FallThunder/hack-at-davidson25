@@ -34,12 +34,21 @@
 	function parseData(d: string): any {
 		try {
 			let data = d;
-			if (data.startsWith('```json')) {
-				data = data.replaceAll('```json', '');
-				data = data.replaceAll('```', '');
+			data = data.replaceAll('```json', '');
+			data = data.replaceAll('```', '');
+			if (data.startsWith('"')) {
+				data = data.substring(1);
 			}
+			if (data.endsWith('"')) {
+				data = data.substring(0, data.length - 1);
+			}
+			data = data.replaceAll('\\n', '');
+			data = data.replaceAll('\\"', '"');
+			data = data.replaceAll('\\\\"', '');
 
+			console.log(data);
 			let data2 = JSON.parse(data);
+			console.log(data2);
 			return data2;
 		} catch (e) {
 			error = e.toString();
