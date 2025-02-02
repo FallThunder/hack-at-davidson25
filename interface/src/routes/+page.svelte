@@ -1,15 +1,53 @@
 <script lang="ts">
-	import { CheckIcon, MailIcon, MapPinIcon, PhoneIcon } from 'lucide-svelte';
+	import { CheckIcon, MailIcon, MapPinIcon, PhoneIcon, MicIcon } from 'lucide-svelte';
 	import BusinessDisplay from "$lib/BusinessDisplay.svelte";
 	import LoadingAnimation from "$lib/LoadingAnimations.svelte";
 	import type {BResponse} from "$lib";
+	import { onMount } from 'svelte';
 
 	let prompt = $state('');
+	let isListening = $state(false);
+	let recognition: SpeechRecognition | null = $state(null);
+
+	// Initialize speech recognition if supported
+	onMount(() => {
+		if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
+			const SpeechRecognitionConstructor = window.webkitSpeechRecognition;
+			recognition = new SpeechRecognitionConstructor();
+			recognition.continuous = false;
+			recognition.interimResults = false;
+			recognition.lang = 'en-US';
+
+			recognition.onresult = (event: SpeechRecognitionEvent) => {
+				const transcript = event.results[0][0].transcript;
+				prompt = transcript;
+				isListening = false;
+			};
+
+			recognition.onend = () => {
+				isListening = false;
+			};
+
+			recognition.onerror = () => {
+				isListening = false;
+			};
+		}
+	});
+
+	function toggleSpeechRecognition() {
+		if (!recognition) return;
+		
+		if (isListening) {
+			recognition.stop();
+		} else {
+			recognition.start();
+			isListening = true;
+		}
+	}
 
 	let promise: Promise<Response> | null = $state(null);
 	let disabled = $state(false);
 	let data: BResponse | undefined = $state(undefined);
-
 	let error: string | null = $state(null);
 
 	async function sub() {
@@ -88,20 +126,33 @@
 
 			<form
 					class="flex-grow min-w-[60vw] flex flex-row gap-0 shadow-lg"
-					onsubmit={(e) => {
-					e.preventDefault();
-					sub();
-				}}
+					on:submit|preventDefault={() => sub()}
 			>
-				<input
-						{disabled}
-						bind:value={prompt}
-						type="text"
-						placeholder="Search for local Lake Norman businesses..."
-						class="flex-1 min-w-[50%] disabled:bg-slate-800 disabled:border-gray-600 disabled:cursor-not-allowed rounded-l-lg bg-slate-700 border-2 border-r-0 ring-0 focus:ring-0 focus:outline-none border-pink-500 py-3 px-4 text-gray-100 placeholder-gray-400"
-				/>
+				<div class="flex-1 flex items-center bg-slate-700 rounded-l-lg border-2 border-r-0 border-pink-500">
+					<input
+							{disabled}
+							bind:value={prompt}
+							type="text"
+							placeholder="Search for local Lake Norman businesses..."
+							class="flex-1 min-w-[50%] disabled:bg-slate-800 disabled:cursor-not-allowed bg-transparent ring-0 focus:ring-0 focus:outline-none py-3 px-4 text-gray-100 placeholder-gray-400"
+							aria-label="Search businesses"
+					/>
+					<button
+							type="button"
+							class="px-3 text-pink-400 hover:text-pink-300 disabled:text-gray-500 disabled:hover:text-gray-500"
+							on:click={() => toggleSpeechRecognition()}
+							disabled={!recognition || disabled}
+							aria-label="Toggle voice search"
+							title={recognition ? 'Click to search with voice' : 'Voice search not supported in your browser'}
+					>
+						<div class:text-pink-500={isListening}>
+							<MicIcon size={20} />
+						</div>
+					</button>
+				</div>
 				<button
 						{disabled}
+						type="submit"
 						class="bg-pink-500 disabled:bg-gray-600 disabled:hover:bg-gray-600 disabled:cursor-not-allowed hover:bg-pink-600 transition px-8 py-3 rounded-r-lg font-semibold text-white flex items-center gap-2"
 				>
 					Search
