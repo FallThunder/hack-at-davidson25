@@ -145,6 +145,8 @@ def extract_response_text(response: Dict[Any, Any]) -> str:
         str: The extracted text response
     """
     try:
+        if "candidates" in response:
+            return response["candidates"][0]["content"]["parts"][0]["text"]
         return response
     except (KeyError, IndexError) as e:
         logger.error(f"Error extracting response text: {e}")
@@ -304,14 +306,17 @@ def generate_search_params(query: str) -> Dict[str, Any]:
         if isinstance(response, dict) and "error" in response:
             return response
             
-        # Extract and parse response
+        # Extract text from Gemini response
+        response_text = extract_response_text(response)
+        
+        # Parse the response
         try:
-            if isinstance(response, str):
-                result = json.loads(response)
-            elif isinstance(response, dict):
-                result = response
+            if isinstance(response_text, str):
+                result = json.loads(response_text)
+            elif isinstance(response_text, dict):
+                result = response_text
             else:
-                logger.error(f"Unexpected response type: {type(response)}")
+                logger.error(f"Unexpected response type: {type(response_text)}")
                 return {"error": "Unexpected response format from AI model"}
                 
             return result
