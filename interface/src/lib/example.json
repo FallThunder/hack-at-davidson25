@@ -1,0 +1,53 @@
+{
+  "match_count": 4,
+  "matched_businesses": [
+    {
+      "business_info": {
+        "business_name": "LUXURY PORTFOLIO INTERNATIONAL",
+        "owner_name": "Rusty Knox",
+        "phone_number": "704-641-7301",
+        "email": "rusty.knox@allentate.com",
+        "address": "103 North Main Street PO Box 2248 Davidson, North Carolina 28036",
+        "any_other_details": "Broker/Realtor\\n704-892-0196 Office\\nwww.allentate.com/rustyknox"
+      },
+      "card_link": "https://shoplakenormanlkn.com/images/knox_rusty.jpg",
+      "homepage_link": "http://www.allentate.com/rustyknox"
+    },
+    {
+      "business_info": {
+        "business_name": "WALLY NEELY",
+        "owner_name": "Wally Neely",
+        "phone_number": "864-483-6006",
+        "email": "realtorwallyneely@gmail.com",
+        "address": "19600 W. Catawba Ave Ste B101\\nCornelius, NC 28031",
+        "any_other_details": "NC Broker, REALTOR\\nTHE PREMIER TEAM OF RE/MAX EXECUTIVE\\nTHEPREMIERTEAM.COM"
+      },
+      "card_link": "https://shoplakenormanlkn.com/images/neely_wally.jpg",
+      "homepage_link": null
+    },
+    {
+      "business_info": {
+        "business_name": "TEAMRE",
+        "owner_name": "Cynthia Team",
+        "phone_number": "704-634-3787",
+        "email": "Cynthia@teamre.biz",
+        "address": "19901 W. Catawba Ave. #104\\nCornelius, NC 28031",
+        "any_other_details": "Southern Homes\\nof The Carolinas\\nRealtor\u00ae\\nwww.teamre.biz"
+      },
+      "card_link": "https://shoplakenormanlkn.com/images/team_cynthia.jpg",
+      "homepage_link": "http://teamre.biz/"
+    },
+    {
+      "business_info": {
+        "business_name": "THE TOVAR GROUP, LLC",
+        "owner_name": "Karen Tovar, MBA",
+        "phone_number": "704.905.6964",
+        "email": "Karen@TheTovarGroup.com",
+        "address": null,
+        "any_other_details": "BIC, Broker Principal"
+      },
+      "card_link": "https://shoplakenormanlkn.com/images/tovar_karen.jpg",
+      "homepage_link": "http://www.thetovargroup.com"
+    }
+  ]
+}

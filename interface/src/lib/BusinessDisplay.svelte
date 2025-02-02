@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type {BResponse} from "$lib";
+    import type {BResponse} from "$lib/index";
     import FeaturedBusinessCard from "./FeaturedBusinessCard.svelte";
     import BusinessCard from "./BusinessCard.svelte";
 
