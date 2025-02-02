@@ -7,22 +7,17 @@ REGION="us-east1"
 
 echo "🚀 Uploading Pine configuration..."
 
-# Create the bucket if it doesn't exist
-gsutil mb -l ${REGION} gs://${BUCKET_NAME} || true
-
 # Upload the configuration file
 echo "📤 Uploading configuration file..."
 gsutil cp pine_config.txt "gs://${BUCKET_NAME}/pine_config.txt"
 
-# Upload both business directories
-echo "📤 Uploading business directories..."
-gsutil cp lknbusiness-rolodex.html "gs://${BUCKET_NAME}/lknbusiness-rolodex.html" || true
-gsutil cp lkncommerce-rolodex.csv "gs://${BUCKET_NAME}/lkncommerce-rolodex.csv"
+# Upload business rolodex
+echo "📤 Uploading business rolodex..."
+gsutil cp lknbusiness-rolodex.html "gs://${BUCKET_NAME}/lknbusiness-rolodex.html"
 
 # Set public read access
 gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/pine_config.txt"
-gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/lknbusiness-rolodex.html" || true
-gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/lkncommerce-rolodex.csv"
+gsutil acl ch -u AllUsers:R "gs://${BUCKET_NAME}/lknbusiness-rolodex.html"
 
-echo "✅ Configuration and business directories uploaded successfully!"
-echo "📍 Configuration location: gs://${BUCKET_NAME}/pine_config.txt"
+echo "✅ Configuration and business rolodex uploaded successfully!"
+echo "📍 Configuration location: gs://${BUCKET_NAME}"

@@ -1,0 +1,6 @@
+google-generativeai>=0.3.0
+Pillow>=10.0.0
+python-dotenv==1.*
+functions-framework==3.*
+flask==2.*
+requests==2.31.0

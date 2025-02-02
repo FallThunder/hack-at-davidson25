@@ -7,10 +7,33 @@ import google.auth
 import google.auth.transport.requests
 from google.cloud import storage
 from google.cloud import secretmanager
+from google.oauth2 import id_token
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def get_businesses_data() -> str:
+    """Get businesses data from Cloud Storage.
+    
+    Returns:
+        str: Line 171 of the HTML content containing all business data.
+    """
+    storage_client = storage.Client()
+    bucket = storage_client.bucket('pine-config')
+    blob = bucket.blob('lknbusiness-rolodex.html')
+    
+    try:
+        # Download HTML as text and split into lines
+        html_lines = blob.download_as_text().splitlines()
+        
+        # Return line 171 if it exists
+        if len(html_lines) >= 171:
+            return html_lines[170]  # 0-based index for line 171
+        return ""
+    except Exception as e:
+        logger.error(f"Error reading businesses data: {e}")
+        return ""
 
 def get_config() -> str:
     """Get configuration from Cloud Storage bucket.
@@ -53,78 +76,66 @@ def get_api_key() -> str:
         return response.payload.data.decode("UTF-8")
     except Exception as e:
         logger.error(f"Error getting API key: {e}")
-        raise
+        return None
 
 def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None) -> Dict[Any, Any]:
-    """Query the Gemini API with a given prompt.
+    """Query Gemini API with prompt.
     
     Args:
-        prompt (str): The text prompt to send to Gemini
-        temperature (float, optional): Controls response randomness
-        max_tokens (int, optional): Maximum response length
+        prompt (str): Prompt text
+        temperature (float, optional): Sampling temperature. Defaults to None.
+        max_tokens (int, optional): Max tokens to generate. Defaults to None.
         
     Returns:
-        Dict: The JSON response from the API
+        Dict[Any, Any]: API response
     """
     try:
-        # Get configuration and API key
-        config = get_config()
+        # Get API key
         api_key = get_api_key()
-        business_directory = get_business_directory()
+        if not api_key:
+            raise Exception("Unable to get API key")
+            
+        # Get businesses data
+        businesses_html = get_businesses_data()
+
+        # Get system prompt from config
+        system_prompt = get_config()
         
-        # Combine system prompt with business directory and user's question
-        full_prompt = f"""{config}
+        # Combine system prompt with user prompt
+        full_prompt = f"{system_prompt}\n\nBusiness Directory HTML:\n{businesses_html}\n\nUser Query: {prompt}"
 
-BUSINESS DIRECTORY DATA:
-{business_directory}
-
-USER QUERY: {prompt}
-
-Remember to:
-1. Search the business directory above for relevant matches
-2. Return data in the exact format specified
-3. Only include businesses found in the directory"""
-
-        # API endpoint
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-        
-        # Request headers
+        # Call Gemini API
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
         headers = {
-            'Content-Type': 'application/json'
+            "Content-Type": "application/json"
         }
-        
-        # Request payload
-        payload = {
+        data = {
             "contents": [{
-                "parts": [{"text": full_prompt}]
-            }],
-            "generationConfig": {
-                "temperature": temperature if temperature is not None else 0.7,
-                "maxOutputTokens": max_tokens if max_tokens is not None else 1024,
-                "topK": 40,
-                "topP": 0.8
-            }
+                "parts":[{
+                    "text": full_prompt
+                }]
+            }]
         }
         
-        # Make the API request
+        if temperature is not None:
+            data["temperature"] = temperature
+        if max_tokens is not None:
+            data["maxTokens"] = max_tokens
+            
         response = requests.post(
             f"{url}?key={api_key}",
             headers=headers,
-            json=payload
+            json=data
         )
         
-        # Check if request was successful
-        response.raise_for_status()
-        
-        # Parse the response
-        api_response = response.json()
-        
-        # Extract and parse the text response
-        return api_response['candidates'][0]['content']['parts'][0]['text']
+        if response.status_code != 200:
+            raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+            
+        return response.json()
         
     except Exception as e:
-        logger.error(f"Error making request to Gemini API: {e}")
-        raise
+        logger.error(f"Error querying Gemini: {e}")
+        return {"error": str(e)}
 
 def extract_response_text(response: Dict[Any, Any]) -> str:
     """Extract the text response from Gemini API's JSON response.
@@ -136,7 +147,7 @@ def extract_response_text(response: Dict[Any, Any]) -> str:
         str: The extracted text response
     """
     try:
-        return response['candidates'][0]['content']['parts'][0]['text']
+        return response
     except (KeyError, IndexError) as e:
         logger.error(f"Error extracting response text: {e}")
         return "Sorry, I couldn't process that response."
@@ -152,7 +163,7 @@ def get_cors_headers(for_preflight: bool = False) -> Dict[str, str]:
     """
     headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST',
         'Access-Control-Allow-Headers': 'Content-Type, X-Prompt, Authorization'
     }
     
@@ -186,38 +197,118 @@ def extract_prompt(request):
     
     return None
 
-def get_business_directory() -> str:
-    """Get business directory data from both CSV and HTML sources in Cloud Storage bucket.
+def get_id_token() -> str:
+    """Get ID token for authenticating with other Cloud Functions.
     
     Returns:
-        str: Combined business directory data containing both CSV and HTML
+        str: ID token for authentication
     """
     try:
-        # Create storage client
-        storage_client = storage.Client()
+        # Get credentials and target audience
+        creds, project = google.auth.default()
+        auth_req = google.auth.transport.requests.Request()
         
-        # Get bucket
-        bucket = storage_client.bucket('pine-config')
+        # Refresh credentials and get ID token
+        creds.refresh(auth_req)
         
-        # Get both blobs
-        commerce_blob = bucket.blob('lkncommerce-rolodex.csv')
-        business_blob = bucket.blob('lknbusiness-rolodex.html')
-        
-        # Get both contents
-        commerce_data = commerce_blob.download_as_text()
-        business_data = business_blob.download_as_text()
-        
-        # Combine both data sources
-        combined_data = f"""
-COMMERCE DIRECTORY (CSV):
-{commerce_data}
+        # Get ID token with the correct audience (image processing function URL)
+        id_token = google.oauth2.id_token.fetch_id_token(
+            auth_req, 
+            "https://us-east1-hack-at-davidson25.cloudfunctions.net/image_processing"
+        )
+        return id_token
+    except Exception as e:
+        logger.error(f"Error getting ID token: {e}")
+        return None
 
-BUSINESS DIRECTORY (HTML):
-{business_data}
-"""
-        return combined_data
+def process_business_card(card_url: str) -> Dict[str, str]:
+    """Process a business card image using the image processing API.
+    
+    Args:
+        card_url (str): URL of the business card image
+        
+    Returns:
+        Dict[str, str]: Dictionary containing extracted business information
+    """
+    try:
+        # Standard prompt for all business cards
+        STANDARD_PROMPT = "Extract all information from this business card into a JSON format with the following keys: business_name, owner_name, phone_number, email, address, and any_other_details."
+        
+        # Get authentication token
+        id_token = get_id_token()
+        if not id_token:
+            raise Exception("Failed to get authentication token")
+        
+        # Call image processing API with authentication
+        response = requests.post(
+            "https://us-east1-hack-at-davidson25.cloudfunctions.net/image_processing",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {id_token}"
+            },
+            json={
+                "prompt": STANDARD_PROMPT,
+                "image_url": card_url
+            },
+            timeout=25  # Set timeout to less than the function's 30s timeout
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+            
+        return {
+            "extracted_info": response.json().get("response", "")
+        }
         
     except Exception as e:
-        logger.error(f"Error reading business directory: {e}")
-        # Return empty data if unable to read from bucket
-        return ""
+        logger.error(f"Error processing business card: {e}")
+        return {
+            "extracted_info": ""
+        }
+
+def generate_search_params(query: str) -> Dict[str, Any]:
+    """Generate search parameters from the query.
+    
+    Args:
+        query (str): User's search query
+        
+    Returns:
+        Dict[str, Any]: Search parameters with processed business information
+    """
+    try:
+        # Query Gemini to get search parameters
+        response = query_gemini(query)
+        
+        if "error" in response:
+            return {"error": response["error"]}
+            
+        # Extract the text content from the response
+        content = response["candidates"][0]["content"]["parts"][0]["text"]
+        
+        # Parse the JSON response
+        search_results = json.loads(content)
+        
+        # Process each business card and format final response
+        final_results = {
+            "matched_businesses": [],
+            "match_count": search_results.get("match_count", 0)
+        }
+        
+        for business in search_results.get("matched_businesses", []):
+            if "card_link" in business and "business_link" in business:
+                # Process the business card
+                card_info = process_business_card(business["card_link"])
+                
+                # Add to final results with all required fields
+                final_results["matched_businesses"].append({
+                    "business_info": card_info["extracted_info"],
+                    "homepage_link": business["business_link"],
+                    "card_link": business["card_link"]
+                })
+        
+        final_results["match_count"] = len(final_results["matched_businesses"])
+        return final_results
+        
+    except Exception as e:
+        logger.error(f"Error generating search parameters: {e}")
+        return {"error": str(e)}

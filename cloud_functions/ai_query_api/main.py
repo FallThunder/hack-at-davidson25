@@ -1,99 +1,64 @@
 import functions_framework
-from flask import jsonify, Response, request
+from flask import jsonify
 import json
-from utils import (
-    extract_prompt,
-    get_config,
-    get_business_directory,
-    query_gemini
-)
+from typing import Dict, Any
+import logging
+from utils import generate_search_params, query_gemini
 
-def handle_query(prompt, system_prompt, business_directory, headers):
-    """Handle business directory queries."""
-    try:
-        # Query Gemini API
-        response = query_gemini(prompt)
-        
-        return Response(
-            json.dumps(response),
-            status=200,
-            headers=headers,
-            mimetype='application/json'
-        )
-    except Exception as e:
-        return Response(
-            json.dumps({"error": str(e)}),
-            status=500,
-            headers=headers,
-            mimetype='application/json'
-        )
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @functions_framework.http
 def ai_query_assistant(request):
+    """HTTP Cloud Function.
+    Args:
+        request (flask.Request): The request object.
+    Returns:
+        The response text, or any set of values that can be turned into a
+        Response object using `make_response`
+    """
     # Set CORS headers for the preflight request
     if request.method == "OPTIONS":
+        # Allows GET and POST requests from any origin with the Content-Type
+        # header and caches preflight response for 3600s
         headers = {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, POST",
             "Access-Control-Allow-Headers": "Content-Type",
-            "Access-Control-Max-Age": "3600",
+            "Access-Control-Max-Age": "3600"
         }
         return ("", 204, headers)
 
     # Set CORS headers for the main request
     headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json"
+        "Access-Control-Allow-Origin": "*"
     }
-
+    
     try:
-        # Check if it's a POST request
-        if request.method != "POST":
-            return (
-                jsonify({
-                    "error": "Only POST requests are supported",
-                    "example": {
-                        "method": "POST",
-                        "headers": {"Content-Type": "application/json"},
-                        "body": {"prompt": "Your question here"}
-                    }
-                }),
-                405,
-                headers
-            )
-
-        prompt = extract_prompt(request)
-        if not prompt:
-            return (
-                jsonify({
-                    "error": "No prompt provided",
-                    "example": {
-                        "method": "POST",
-                        "headers": {"Content-Type": "application/json"},
-                        "body": {"prompt": "Your question here"}
-                    }
-                }),
-                400,
-                headers
-            )
-
-        # Get system prompt and business directory
-        system_prompt = get_config()
-        business_directory = get_business_directory()
+        query = None
         
-        return handle_query(prompt, system_prompt, business_directory, headers)
-
+        # Handle POST request with JSON body
+        if request.method == "POST" and request.is_json:
+            request_json = request.get_json()
+            if request_json and 'query' in request_json:
+                query = request_json['query']
+        
+        # Handle GET request with query parameter
+        if not query and request.args.get("query"):
+            query = request.args.get("query")
+            
+        if not query:
+            return (jsonify({"error": "No query parameter provided"}), 400, headers)
+            
+        # Generate search parameters and process business cards using the function from utils.py
+        search_results = generate_search_params(query)
+        
+        if "error" in search_results:
+            return (jsonify({"error": search_results["error"]}), 500, headers)
+            
+        return (jsonify(search_results), 200, headers)
+        
     except Exception as e:
-        print(f"Error processing request: {str(e)}")
-        return (
-            jsonify({
-                "error": f"Failed to process request: {str(e)}",
-                "example": {
-                    "method": "POST",
-                    "headers": {"Content-Type": "application/json"},
-                    "body": {"prompt": "Your question here"}
-                }
-            }),
-            500,
-            headers
-        )
+        logger.error(f"Error in ai_query_assistant: {e}")
+        return (jsonify({"error": str(e)}), 500, headers)

@@ -1,0 +1,3 @@
+1. Make changes step by step.
+2. Do not delete the API key in the .env file.
+3. Always use us-east1 for the region.
