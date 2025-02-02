@@ -97,7 +97,7 @@
 						{disabled}
 						bind:value={prompt}
 						type="text"
-						placeholder="Search for restaurants, plumbers, gyms..."
+						placeholder="Search for local Lake Norman businesses..."
 						class="flex-1 min-w-[50%] disabled:bg-slate-800 disabled:border-gray-600 disabled:cursor-not-allowed rounded-l-lg bg-slate-700 border-2 border-r-0 ring-0 focus:ring-0 focus:outline-none border-pink-500 py-3 px-4 text-gray-100 placeholder-gray-400"
 				/>
 				<button
