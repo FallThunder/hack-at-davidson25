@@ -8,9 +8,8 @@
     let { business }: Props = $props();
 </script>
 
-<div class="flex flex-row justify-center">
     <div
-            class="flex flex-initial flex-col gap-3 bg-slate-800/50 backdrop-blur-sm min-w-80 p-5 rounded-xl shadow-xl hover:scale-105 hover:shadow-2xl cursor-pointer transition-all duration-300 border border-slate-700"
+            class="flex flex-1 basis-0 flex-col gap-3 bg-slate-800/50 backdrop-blur-sm min-w-80 p-5 rounded-xl shadow-xl hover:scale-105 hover:shadow-2xl cursor-pointer transition-all duration-300 border border-slate-700"
     >
         <h1 class="font-bold text-xl text-white">{business.business_info.business_name}</h1>
         {#if !business.business_info.any_other_details}
@@ -46,4 +45,4 @@
             </p>
         </div>
     </div>
-</div>
+
