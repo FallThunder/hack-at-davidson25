@@ -312,14 +312,35 @@ def generate_search_params(query: str) -> Dict[str, Any]:
         # Parse the response
         try:
             if isinstance(response_text, str):
-                result = json.loads(response_text)
+                raw_result = json.loads(response_text)
             elif isinstance(response_text, dict):
-                result = response_text
+                raw_result = response_text
             else:
                 logger.error(f"Unexpected response type: {type(response_text)}")
                 return {"error": "Unexpected response format from AI model"}
-                
-            return result
+            
+            # Structure the final response
+            final_results = {
+                "matched_businesses": [],
+                "match_count": 0
+            }
+            
+            # Process each business
+            for business in raw_result.get("matched_businesses", []):
+                if "card_link" in business:
+                    # Process the business card
+                    business_info = process_business_card(business["card_link"])
+                    
+                    # Add to final results with all required fields
+                    final_results["matched_businesses"].append({
+                        "business_info": business_info,
+                        "homepage_link": business.get("business_link"),
+                        "card_link": business["card_link"]
+                    })
+            
+            final_results["match_count"] = len(final_results["matched_businesses"])
+            return final_results
+            
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing AI response: {e}")
             return {"error": "Unable to parse AI response"}
