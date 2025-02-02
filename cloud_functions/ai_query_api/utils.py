@@ -29,7 +29,12 @@ def get_businesses_data() -> str:
         
         # Return line 171 if it exists
         if len(html_lines) >= 171:
-            return html_lines[170]  # 0-based index for line 171
+            # Clean up the HTML line to prevent JSON parsing issues
+            html_line = html_lines[170]  # 0-based index for line 171
+            # Remove any unescaped quotes and normalize whitespace
+            html_line = html_line.replace('\\"', '"').replace('"', '\\"').strip()
+            return html_line
+        logger.error("Business data file does not contain enough lines")
         return ""
     except Exception as e:
         logger.error(f"Error reading businesses data: {e}")
@@ -97,39 +102,34 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
             
         # Get businesses data
         businesses_html = get_businesses_data()
-
-        # Get system prompt from config
-        system_prompt = get_config()
         
-        # Combine system prompt with user prompt
-        full_prompt = f"{system_prompt}\n\nBusiness Directory HTML:\n{businesses_html}\n\nUser Query: {prompt}"
-
-        # Call Gemini API
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-        headers = {
-            "Content-Type": "application/json"
-        }
-        data = {
-            "contents": [{
-                "parts":[{
-                    "text": full_prompt
-                }]
-            }]
-        }
-        
-        if temperature is not None:
-            data["temperature"] = temperature
-        if max_tokens is not None:
-            data["maxTokens"] = max_tokens
-            
+        # Make API request
         response = requests.post(
-            f"{url}?key={api_key}",
-            headers=headers,
-            json=data
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+            headers={"Content-Type": "application/json"},
+            params={"key": api_key},
+            json={
+                "contents": [{"parts":[{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": temperature if temperature is not None else 0.1,
+                    "maxOutputTokens": max_tokens if max_tokens is not None else 2048,
+                    "topP": 0.8,
+                    "topK": 40
+                }
+            }
         )
         
+        # Check for quota exceeded
+        if response.status_code == 429:
+            logger.error("Gemini API quota exceeded")
+            return {
+                "error": "Service is temporarily unavailable due to high demand. Please try again in a few minutes."
+            }
+            
+        # Check for other errors
         if response.status_code != 200:
-            raise Exception(f"API request failed with status {response.status_code}: {response.text}")
+            logger.error(f"API request failed with status {response.status_code}: {response.text}")
+            return {"error": f"API request failed: {response.text}"}
             
         return response.json()
         
@@ -147,6 +147,8 @@ def extract_response_text(response: Dict[Any, Any]) -> str:
         str: The extracted text response
     """
     try:
+        if "candidates" in response:
+            return response["candidates"][0]["content"]["parts"][0]["text"]
         return response
     except (KeyError, IndexError) as e:
         logger.error(f"Error extracting response text: {e}")
@@ -221,18 +223,18 @@ def get_id_token() -> str:
         logger.error(f"Error getting ID token: {e}")
         return None
 
-def process_business_card(card_url: str) -> Dict[str, str]:
+def process_business_card(card_url: str) -> Dict[str, Any]:
     """Process a business card image using the image processing API.
     
     Args:
         card_url (str): URL of the business card image
         
     Returns:
-        Dict[str, str]: Dictionary containing extracted business information
+        Dict[str, Any]: Dictionary containing extracted business information
     """
     try:
         # Standard prompt for all business cards
-        STANDARD_PROMPT = "Extract all information from this business card into a JSON format with the following keys: business_name, owner_name, phone_number, email, address, and any_other_details."
+        STANDARD_PROMPT = "Extract all information from this business card and return it in a JSON format with exactly these keys: business_name, owner_name, phone_number, email, address, any_other_details. If any field is not found, set it to null."
         
         # Get authentication token
         id_token = get_id_token()
@@ -255,60 +257,95 @@ def process_business_card(card_url: str) -> Dict[str, str]:
         
         if response.status_code != 200:
             raise Exception(f"API request failed with status {response.status_code}: {response.text}")
-            
-        return {
-            "extracted_info": response.json().get("response", "")
-        }
+        
+        # Parse the response JSON and ensure it has the required structure
+        extracted_info = json.loads(response.json().get("response", "{}"))
+        
+        # Ensure all required fields exist
+        required_fields = ["business_name", "owner_name", "phone_number", "email", "address", "any_other_details"]
+        for field in required_fields:
+            if field not in extracted_info:
+                extracted_info[field] = None
+                
+        return extracted_info
         
     except Exception as e:
         logger.error(f"Error processing business card: {e}")
         return {
-            "extracted_info": ""
+            "business_name": None,
+            "owner_name": None,
+            "phone_number": None,
+            "email": None,
+            "address": None,
+            "any_other_details": None
         }
 
 def generate_search_params(query: str) -> Dict[str, Any]:
-    """Generate search parameters from the query.
+    """Generate search parameters based on user query.
     
     Args:
         query (str): User's search query
         
     Returns:
-        Dict[str, Any]: Search parameters with processed business information
+        Dict[str, Any]: Search results with matched businesses
     """
     try:
-        # Query Gemini to get search parameters
-        response = query_gemini(query)
+        # Get system prompt
+        system_prompt = get_config()
         
-        if "error" in response:
-            return {"error": response["error"]}
+        # Get businesses data
+        businesses_html = get_businesses_data()
+        if not businesses_html:
+            return {"error": "Unable to load business data"}
             
-        # Extract the text content from the response
-        content = response["candidates"][0]["content"]["parts"][0]["text"]
+        # Create full prompt
+        full_prompt = f"{system_prompt}\n\nBusiness Directory HTML:\n{businesses_html}\n\nUser Query: {query}"
         
-        # Parse the JSON response
-        search_results = json.loads(content)
+        # Query Gemini
+        response = query_gemini(full_prompt)
         
-        # Process each business card and format final response
-        final_results = {
-            "matched_businesses": [],
-            "match_count": search_results.get("match_count", 0)
-        }
+        # Check for errors
+        if isinstance(response, dict) and "error" in response:
+            return response
+            
+        # Extract text from Gemini response
+        response_text = extract_response_text(response)
         
-        for business in search_results.get("matched_businesses", []):
-            if "card_link" in business and "business_link" in business:
-                # Process the business card
-                card_info = process_business_card(business["card_link"])
-                
-                # Add to final results with all required fields
-                final_results["matched_businesses"].append({
-                    "business_info": card_info["extracted_info"],
-                    "homepage_link": business["business_link"],
-                    "card_link": business["card_link"]
-                })
-        
-        final_results["match_count"] = len(final_results["matched_businesses"])
-        return final_results
-        
+        # Parse the response
+        try:
+            if isinstance(response_text, str):
+                raw_result = json.loads(response_text)
+            elif isinstance(response_text, dict):
+                raw_result = response_text
+            else:
+                logger.error(f"Unexpected response type: {type(response_text)}")
+                return {"error": "Unexpected response format from AI model"}
+            
+            # Structure the final response
+            final_results = {
+                "matched_businesses": [],
+                "match_count": 0
+            }
+            
+            # Process each business
+            for business in raw_result.get("matched_businesses", []):
+                if "card_link" in business:
+                    # Process the business card
+                    business_info = process_business_card(business["card_link"])
+                    
+                    # Add to final results with all required fields
+                    final_results["matched_businesses"].append({
+                        "business_info": business_info,
+                        "homepage_link": business.get("business_link"),
+                        "card_link": business["card_link"]
+                    })
+            
+            final_results["match_count"] = len(final_results["matched_businesses"])
+            return final_results
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing AI response: {e}")
+            return {"error": "Unable to parse AI response"}
     except Exception as e:
         logger.error(f"Error generating search parameters: {e}")
         return {"error": str(e)}
