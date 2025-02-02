@@ -111,8 +111,10 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
             json={
                 "contents": [{"parts":[{"text": prompt}]}],
                 "generationConfig": {
-                    "temperature": temperature if temperature is not None else 0.7,
-                    "maxOutputTokens": max_tokens if max_tokens is not None else 1024,
+                    "temperature": temperature if temperature is not None else 0.1,
+                    "maxOutputTokens": max_tokens if max_tokens is not None else 2048,
+                    "topP": 0.8,
+                    "topK": 40
                 }
             }
         )
