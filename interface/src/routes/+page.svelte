@@ -2,21 +2,19 @@
 	import { CheckIcon, MailIcon, MapPinIcon, PhoneIcon } from 'lucide-svelte';
 	import BusinessDisplay from "$lib/BusinessDisplay.svelte";
 	import LoadingAnimation from "$lib/LoadingAnimations.svelte";
+	import type {BResponse} from "$lib";
 
 	let prompt = $state('');
 
 	let promise: Promise<Response> | null = $state(null);
 	let disabled = $state(false);
-	let data: {
-		match_count: number;
-		matched_businesses: Array<{
-			business_link: string;
-			card_link: string;
-		}>;
-	} | undefined = $state(undefined);
+	let data: BResponse | undefined = $state(undefined);
+
+	let error: string | null = $state(null);
 
 	async function sub() {
 		disabled = true;
+		error = null;
 		promise = fetch('https://ai-query-assistant-tacv2fcyxa-ue.a.run.app/', {
 			method: 'POST',
 			headers: {
@@ -41,7 +39,7 @@
 				});
 	}
 
-	let error: string | null = $state(null);
+
 	function parseData(d: string): any {
 		try {
 			// First try to parse the response as JSON directly

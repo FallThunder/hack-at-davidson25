@@ -1,17 +1,19 @@
 export interface Business {
-    name: string,
-    phone: string,
-    website: string,
+    business_info: BusinessInfo,
+    card_link: string,
+    homepage_link: string
+}
+
+export interface BusinessInfo {
     address: string,
-    match_reasons: string[]
+    any_other_details: string,
+    business_name: string,
+    email: string,
+    owner_name: string,
+    phone_number: string
 }
 
 export interface BResponse {
-    best_match: BestMatch,
-    businesses: Business[]
-}
-
-export interface BestMatch {
-    business_index: number,
-    match_reasons: string[]
+    match_count: number,
+    matched_businesses: Business[]
 }
