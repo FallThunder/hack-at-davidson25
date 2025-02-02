@@ -8,6 +8,9 @@ import google.auth.transport.requests
 from google.cloud import storage
 from google.cloud import secretmanager
 from google.oauth2 import id_token
+import html2text
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -111,7 +114,7 @@ def query_gemini(prompt: str, temperature: float = None, max_tokens: int = None)
             json={
                 "contents": [{"parts":[{"text": prompt}]}],
                 "generationConfig": {
-                    "temperature": temperature if temperature is not None else 0.1,
+                    "temperature": temperature if temperature is not None else 0.3,
                     "maxOutputTokens": max_tokens if max_tokens is not None else 2048,
                     "topP": 0.8,
                     "topK": 40
@@ -148,11 +151,41 @@ def extract_response_text(response: Dict[Any, Any]) -> str:
     """
     try:
         if "candidates" in response:
-            return response["candidates"][0]["content"]["parts"][0]["text"]
+            text_response = response["candidates"][0]["content"]["parts"][0]["text"]
+            # Ensure the response is valid JSON
+            try:
+                json_response = json.loads(text_response)
+                # Validate that best_match exists and is properly formatted
+                if "best_match" not in json_response:
+                    json_response["best_match"] = {
+                        "business_link": None,
+                        "card_link": None,
+                        "reason": "No best match could be determined"
+                    }
+                return json.dumps(json_response)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse JSON response")
+                return json.dumps({
+                    "matched_businesses": [],
+                    "match_count": 0,
+                    "best_match": {
+                        "business_link": None,
+                        "card_link": None,
+                        "reason": "Error processing response"
+                    }
+                })
         return response
     except (KeyError, IndexError) as e:
         logger.error(f"Error extracting response text: {e}")
-        return "Sorry, I couldn't process that response."
+        return json.dumps({
+            "matched_businesses": [],
+            "match_count": 0,
+            "best_match": {
+                "business_link": None,
+                "card_link": None,
+                "reason": "Error processing response"
+            }
+        })
 
 def get_cors_headers(for_preflight: bool = False) -> Dict[str, str]:
     """Get CORS headers for the response.
@@ -280,6 +313,77 @@ def process_business_card(card_url: str) -> Dict[str, Any]:
             "any_other_details": None
         }
 
+def get_website_content(url: str) -> str:
+    """Safely fetch and extract content from a business website.
+    
+    Args:
+        url (str): The business website URL
+        
+    Returns:
+        str: Extracted text content from the website, or empty string if failed
+    """
+    try:
+        logger.info(f"🌐 Attempting to fetch content from: {url}")
+        
+        # Validate URL
+        parsed = urlparse(url)
+        if not parsed.scheme or not parsed.netloc:
+            logger.warning(f"❌ Invalid URL format: {url}")
+            return ""
+            
+        # Set headers to mimic a browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        }
+            
+        # Fetch content with timeout
+        logger.info(f"📥 Fetching HTML content from {url}")
+        try:
+            response = requests.get(url, timeout=15, verify=True, headers=headers)
+            response.raise_for_status()
+            html_content = response.text
+            logger.info(f"✅ Successfully fetched {len(html_content)} bytes from {url}")
+        except requests.exceptions.SSLError:
+            # Try again without SSL verification if SSL fails
+            logger.warning(f"⚠️ SSL verification failed for {url}, retrying without verification")
+            response = requests.get(url, timeout=15, verify=False, headers=headers)
+            response.raise_for_status()
+            html_content = response.text
+            logger.info(f"✅ Successfully fetched {len(html_content)} bytes from {url} (without SSL verification)")
+        
+        # Parse HTML and extract text
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Remove script and style elements
+        script_count = len(soup(["script", "style"]))
+        for script in soup(["script", "style"]):
+            script.decompose()
+        logger.info(f"🧹 Removed {script_count} script/style elements")
+            
+        # Convert HTML to plain text
+        h = html2text.HTML2Text()
+        h.ignore_links = True
+        h.ignore_images = True
+        text_content = h.handle(str(soup))
+        
+        # Clean and truncate the text
+        clean_text = ' '.join(text_content.split())[:2000]  # Limit to first 2000 chars
+        logger.info(f"📝 Extracted {len(clean_text)} characters of clean text from {url}")
+        return clean_text
+        
+    except requests.Timeout:
+        logger.error(f"⏰ Timeout while fetching content from {url}")
+        return ""
+    except requests.RequestException as e:
+        logger.error(f"❌ Error fetching website content from {url}: {e}")
+        return ""
+    except Exception as e:
+        logger.error(f"❌ Unexpected error processing content from {url}: {e}")
+        return ""
+
 def generate_search_params(query: str) -> Dict[str, Any]:
     """Generate search parameters based on user query.
     
@@ -290,6 +394,8 @@ def generate_search_params(query: str) -> Dict[str, Any]:
         Dict[str, Any]: Search results with matched businesses
     """
     try:
+        logger.info(f"🔍 Processing query: {query}")
+        
         # Get system prompt
         system_prompt = get_config()
         
@@ -301,7 +407,8 @@ def generate_search_params(query: str) -> Dict[str, Any]:
         # Create full prompt
         full_prompt = f"{system_prompt}\n\nBusiness Directory HTML:\n{businesses_html}\n\nUser Query: {query}"
         
-        # Query Gemini
+        # Query Gemini for initial business matching
+        logger.info("🤖 Querying Gemini for initial business matching")
         response = query_gemini(full_prompt)
         
         # Check for errors
@@ -321,17 +428,35 @@ def generate_search_params(query: str) -> Dict[str, Any]:
                 logger.error(f"Unexpected response type: {type(response_text)}")
                 return {"error": "Unexpected response format from AI model"}
             
+            logger.info(f"📊 Initial matches found: {len(raw_result.get('matched_businesses', []))} businesses")
+            
             # Structure the final response
             final_results = {
                 "matched_businesses": [],
-                "match_count": 0
+                "match_count": 0,
+                "best_match": raw_result.get("best_match", {})
             }
             
             # Process each business
+            website_contents = {}
+            successful_fetches = 0
             for business in raw_result.get("matched_businesses", []):
                 if "card_link" in business:
                     # Process the business card
+                    logger.info(f"💼 Processing business card for: {business.get('business_link', 'Unknown Business')}")
                     business_info = process_business_card(business["card_link"])
+                    
+                    # Fetch website content if available
+                    website_content = ""
+                    if business.get("business_link"):
+                        logger.info(f"🌐 Fetching website content for potential match: {business['business_link']}")
+                        website_content = get_website_content(business["business_link"])
+                        if website_content:
+                            logger.info(f"✅ Successfully fetched website content ({len(website_content)} chars)")
+                            website_contents[business["business_link"]] = website_content
+                            successful_fetches += 1
+                        else:
+                            logger.warning(f"⚠️ No website content available for {business['business_link']}")
                     
                     # Add to final results with all required fields
                     final_results["matched_businesses"].append({
@@ -340,7 +465,86 @@ def generate_search_params(query: str) -> Dict[str, Any]:
                         "card_link": business["card_link"]
                     })
             
+            # If we have enough website contents, use them to refine the best match
+            if website_contents and successful_fetches >= 1:
+                logger.info(f"🔄 Analyzing website content for {len(website_contents)} businesses")
+                # Create a prompt for website content analysis
+                website_analysis_prompt = f"""Based on the user query: "{query}"
+                And the following website contents for each business:
+                {json.dumps(website_contents, indent=2)}
+                
+                Analyze which business best matches the query. Consider:
+                1. Relevance of services/products to the query
+                2. Depth of information available
+                3. Specific expertise mentioned
+                4. Current activity/availability of the business
+                
+                Return only a JSON with the best matching business link and a reason why."""
+                
+                # Query Gemini for website analysis
+                logger.info("🤖 Querying Gemini for website content analysis")
+                website_analysis = query_gemini(website_analysis_prompt, temperature=0.2)
+                if isinstance(website_analysis, dict) and "error" not in website_analysis:
+                    analysis_text = extract_response_text(website_analysis)
+                    try:
+                        analysis_result = json.loads(analysis_text)
+                        if "business_link" in analysis_result:
+                            logger.info(f"✨ Website analysis selected best match: {analysis_result['business_link']}")
+                            logger.info(f"📝 Selection reason: {analysis_result.get('reason', 'No reason provided')}")
+                            # Update the best match based on website analysis
+                            for business in raw_result.get("matched_businesses", []):
+                                if business.get("business_link") == analysis_result["business_link"]:
+                                    final_results["best_match"] = {
+                                        "business_link": business["business_link"],
+                                        "card_link": business["card_link"],
+                                        "business_name": business_info.get("business_name"),
+                                        "reason": analysis_result.get("reason", "Best match based on website content analysis")
+                                    }
+                                    break
+                    except json.JSONDecodeError:
+                        logger.error("❌ Failed to parse website analysis result")
+                else:
+                    logger.warning("⚠️ Website analysis failed or returned error")
+            else:
+                logger.info("ℹ️ Using business card information for best match selection")
+                # Create a prompt for business card analysis
+                card_analysis_prompt = f"""Based on the user query: "{query}"
+                And the following business information:
+                {json.dumps([b["business_info"] for b in final_results["matched_businesses"]], indent=2)}
+                
+                Analyze which business best matches the query based on their business card information. Consider:
+                1. Business name and description
+                2. Services mentioned
+                3. Professional focus
+                4. Contact information completeness
+                
+                Return only a JSON with the best matching business card link and a reason why."""
+                
+                # Query Gemini for card analysis
+                logger.info("🤖 Querying Gemini for business card analysis")
+                card_analysis = query_gemini(card_analysis_prompt, temperature=0.2)
+                if isinstance(card_analysis, dict) and "error" not in card_analysis:
+                    analysis_text = extract_response_text(card_analysis)
+                    try:
+                        analysis_result = json.loads(analysis_text)
+                        if "card_link" in analysis_result:
+                            logger.info(f"✨ Business card analysis selected best match")
+                            logger.info(f"📝 Selection reason: {analysis_result.get('reason', 'No reason provided')}")
+                            # Update the best match based on card analysis
+                            for business in final_results["matched_businesses"]:
+                                if business["card_link"] == analysis_result["card_link"]:
+                                    final_results["best_match"] = {
+                                        "business_link": business.get("homepage_link"),
+                                        "card_link": business["card_link"],
+                                        "business_name": business["business_info"].get("business_name"),
+                                        "reason": analysis_result.get("reason", "Best match based on business card information")
+                                    }
+                                    break
+                    except json.JSONDecodeError:
+                        logger.error("❌ Failed to parse card analysis result")
+            
             final_results["match_count"] = len(final_results["matched_businesses"])
+            logger.info(f"✅ Final results: {final_results['match_count']} businesses, best match determined: {'best_match' in final_results}")
             return final_results
             
         except json.JSONDecodeError as e:

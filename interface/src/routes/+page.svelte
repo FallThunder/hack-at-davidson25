@@ -77,7 +77,7 @@
 			<div class="text-center">
 				<h1 class="text-4xl font-bold text-white mb-2 flex items-center gap-2 justify-center">
 					<MapPinIcon class="w-8 h-8 text-pink-500" />
-					Labor Locator
+					Lake Norman Link
 				</h1>
 				<p class="text-lg text-pink-200 font-medium">Discover Lake Norman, One Business at a Time</p>
 			</div>
@@ -116,7 +116,7 @@
 			{#await promise}
 				<LoadingAnimation />
 			{:then}
-				{#if error === null}
+				{#if error === null && data !== undefined}
 					<BusinessDisplay {data} />
 				{:else}
 					<div class="flex flex-row justify-center">

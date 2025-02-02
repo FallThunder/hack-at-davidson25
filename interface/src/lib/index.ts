@@ -15,5 +15,15 @@ export interface BusinessInfo {
 
 export interface BResponse {
     match_count: number,
-    matched_businesses: Business[]
+    matched_businesses: Business[],
+    best_match: {
+        business_link: string,
+        card_link: string,
+        business_name: string,
+        reason: string
+    }
+}
+
+export interface BestMatch {
+    match_reasons: string[]
 }
