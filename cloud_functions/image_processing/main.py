@@ -94,8 +94,17 @@ def generate_content(image_source, prompt):
         # Create the model
         model = genai.GenerativeModel(model_name='gemini-1.5-flash-8b')
 
+        # Add instruction for clean JSON format
+        full_prompt = (
+            f"{prompt} "
+            "Return ONLY a clean JSON string without any markdown formatting, code blocks, or special characters. "
+            "The response should be a single line, directly parseable as JSON. "
+            "For any fields where information is not found, use null instead of omitting the field. "
+            "Always include all fields in the response: business_name, owner_name, phone_number, email, address, and any_other_details."
+        )
+
         # Generate content
-        result = model.generate_content([prompt, file])
+        result = model.generate_content([full_prompt, file])
         return result.text
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -127,6 +136,27 @@ def handle_request(request):
         prompt = request_json['prompt']
         image_url = request_json['image_url']
         response = generate_content(image_url, prompt)
+
+        # Clean any potential leftover special characters or whitespace
+        response = response.strip()
+        if response.startswith('```') and response.endswith('```'):
+            response = response[3:-3]
+        if response.startswith('json'):
+            response = response[4:]
+        response = response.strip()
+
+        # Ensure we have a valid JSON string
+        try:
+            json.loads(response)  # Validate JSON
+        except json.JSONDecodeError:
+            response = json.dumps({
+                "business_name": None,
+                "owner_name": None,
+                "phone_number": None,
+                "email": None,
+                "address": None,
+                "any_other_details": None
+            })
 
         return (json.dumps({'response': response}), 200, headers)
 
